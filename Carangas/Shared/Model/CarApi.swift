@@ -8,6 +8,15 @@
 
 import Foundation
 
+enum APIError: Error {
+    case badURL
+    case taskError
+    case noResponse
+    case invalidStatusCode(Int)
+    case noData
+    case decodeError
+}
+
 class CarApi {
     
     private let basePath = "https://carangas.herokuapp.com/cars"
@@ -24,32 +33,68 @@ class CarApi {
     
     private lazy var session = URLSession(configuration: configuration)
     
-    func loadCars() {
+    func loadCars(onComplete: @escaping( Result<[Car],APIError>) -> Void) {
         
-        guard let url = URL(string: basePath) else {return}
+        guard let url = URL(string: basePath) else {
+            onComplete(.failure(.badURL))
+            return
+        }
         
         let task = session.dataTask(with: url) { (data, response, error) in
             if let error = error {
-                return print(error)
+                onComplete(.failure(.taskError))
+                return
             }
             guard let response = response as? HTTPURLResponse else {
-                return print("Objeto response vazio")
+                onComplete(.failure(.noResponse))
+                return
             }
             if !(200...299 ~= response.statusCode) {
-                return print("Status Code Invalido")
+                onComplete(.failure(.invalidStatusCode(response.statusCode)))
+                return
                 
             }
             guard let data = data else {
-                return print("Sem dados!!!")
+                onComplete(.failure(.noData))
+                return
             }
             do {
                 let cars = try JSONDecoder().decode([Car].self, from: data)
-                print("Voce tem um total de \(cars.count) carros")
+                onComplete(.success(cars))
             } catch {
-                print(error)
+                onComplete(.failure(.decodeError))
             }
             
         }
         task.resume()
+    }
+    
+    func deleteCar(_ car: Car, onComplete: @escaping (Result<Void, APIError>) -> Void) {
+        request("DELETE", car: car, onComplete: onComplete)
+        
+    }
+    func updateCar(_ car: Car, onComplete: @escaping (Result<Void, APIError>) -> Void) {
+        request("PUT", car: car, onComplete: onComplete)
+    }
+    func createCar(_ car: Car, onComplete: @escaping (Result<Void, APIError>) -> Void) {
+        request("POST", car: car, onComplete: onComplete)
+    }
+    
+    private func request(_ httpMethod: String, car: Car, onComplete: @escaping (Result<Void, APIError>) -> Void) {
+        let urlString = basePath + "/" + (car._id ?? "")
+        let url = URL(string: urlString)!
+        
+        var urlRequest = URLRequest(url: url)
+        
+        urlRequest.httpBody = try? JSONEncoder().encode(car)
+        urlRequest.httpMethod = httpMethod
+        
+        session.dataTask(with: urlRequest) { (data, _, _) in
+            if data == nil {
+                onComplete(.failure(.taskError))
+            } else {
+                onComplete(.success(()))
+            }
+        }.resume()
     }
 }
